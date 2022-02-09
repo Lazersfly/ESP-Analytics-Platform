@@ -1,0 +1,100 @@
+/* This is an a generic payload parser for LoRaWAN. It will work for any network server.
+** The code find the "payload" variable, sent by your sensor, and parse it if exists.
+** The content of payload variable is always an Hexadecimal value.
+** 
+** Note: Additional variables can be created by the Network Server and sent directly to the bucket. Normally they aren't handled here.
+** 
+** Testing:
+** You can do manual tests to the parse by using the Device Emulator. Copy and Paste the following JSON:
+** [{ "variable": "data", "value": "0109611395" }]
+*/
+
+// Search the payload variable in the payload global variable. It's contents is always [ { variable, value...}, {variable, value...} ...]
+// Add ignorable variables in this array.
+const ignore_vars = ['metadata','app_eui','dev_eui','devaddr','downlink_url','name','port','reported_at','type','raw_packet','fcnt','replay'];
+
+// Remove unwanted variables.
+payload = payload.filter(x => !ignore_vars.includes(x.variable));
+payload = payload.filter(x => (!x.variable.includes('hotspot') || x.variable.includes("hotspot_0_rssi") || x.variable.includes("hotspot_0_snr") || x.variable.includes("hotspot_0_spreading")));
+
+const payload_raw = payload.find(x => x.variable === 'payload_raw' || x.variable === 'payload' || x.variable === 'data');
+if (payload_raw) {
+  try {
+    // Convert the data from Hex to Javascript Buffer.
+    const buffer = Buffer.from(payload_raw.value, 'hex');
+
+    var data = [];
+
+    var i = 0;
+
+    //console.log(buffer.length);
+    while(i<buffer.length){
+      //console.log(buffer.readUInt8(i));
+      switch (buffer[i]) {
+        case 10  :  // GPS
+          i++;
+          data.push(
+            { variable: 'location', location: {
+            'lat': buffer.readFloatLE(i),
+            'lng': buffer.readFloatLE(i+=4)}
+            },
+            { variable: 'altitude', value: buffer.readFloatLE(i+=4)},
+            { variable: 'hdop', value: buffer.readFloatLE(i+=4)},
+            { variable: 'course',  value: buffer.readInt16BE(i+=4)},
+            { variable: 'speed',  value: buffer.readFloatLE(i+=2)},
+            { variable: 'sats',  value: buffer.readInt16BE(i+=4)}
+          );
+          i+=2;
+          break;
+    		case 11  : //AXP
+          i++;
+          data.push(
+    		    { variable: 'espBatteryVoltage', value: buffer.readFloatLE(i)/1000},
+    		    { variable: 'espBatteryCurrent', value: buffer.readFloatLE(i+=4)},
+    		    { variable: 'espBatteryTempture', value: buffer.readFloatLE(i+=4)}
+          );
+          i+=4;
+          break;
+    		case 12   : //MPPT
+          i++;
+          data.push(
+    		    { variable: 'veSolarPanelVoltage', value: buffer.readFloatLE(i)},
+    		    { variable: 'veSolarPanelPower', value: buffer.readFloatLE(i+=4)},
+    		    { variable: 'veBatteryCurrent', value: buffer.readFloatLE(i+=4)},
+    		    { variable: 'veBatteryVoltage', value: buffer.readFloatLE(i+=4)},
+    		    { variable: 'veYieldToday', value: buffer.readFloatLE(i+=4)},
+    		    { variable: 'veChargingMode', value: buffer.readFloatLE(i+=4)},
+    		    { variable: 'veChargerMode', value: buffer.readFloatLE(i+=4)},
+    		    { variable: 'veRemote', value: buffer.readFloatLE(i+=4)}
+          );
+          i+=4;
+          break;
+    		case 13   : //BME
+          i++;
+          data.push(
+    		    { variable: 'bmeTemp', value: buffer.readFloatLE(i)},
+    		    { variable: 'bmeHum', value: buffer.readFloatLE(i+=4)},
+    		    { variable: 'bmePres', value: buffer.readFloatLE(i+=4)/1000}
+          );
+          i+=4;
+          break;
+        default:
+            i=buffer.length;
+            break;
+      }
+    }
+
+    // This will concat the content sent by your device with the content generated in this payload parser.
+    // It also add the field "serie" and "time" to it, copying from your sensor data.
+    payload = payload.concat(data.map(x => ({ ...x, serie: payload_raw.serie, time: payload_raw.time })));
+
+  } catch (e) {
+    // Print the error to the Live Inspector.
+    console.error(e);
+
+    const buffer = Buffer.from(payload_raw.value, 'hex');
+
+    // Return the variable parse_error for debugging.
+    payload = [{ variable: 'parse_error', value: e.message }, {variable: 'data', value: buffer.toJSON()}];
+  }
+}

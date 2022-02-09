@@ -1,0 +1,97 @@
+function Decoder(bytes, port, uplink_info) {
+    /*
+      The uplink_info variable is an OPTIONAL third parameter that provides the following:
+    
+      uplink_info = {
+        type: "join",
+        uuid: <UUIDv4>,
+        id: <device id>,
+        name: <device name>,
+        dev_eui: <dev_eui>, *
+        app_eui: <app_eui>, *
+        metadata: {...},
+        fcnt: <integer>,
+        reported_at: <timestamp>,
+        port: <integer>,
+        devaddr: <devaddr>,
+        hotspots: {...},
+        hold_time: <integer>
+      }
+    */
+    
+      let data = [];
+    
+      const buffer = bufferFrom(bytes);
+      
+      let i = 0;
+      
+      while (i < buffer.byteLength) {
+        switch (buffer.getUint8(i)) {
+          case 0x0a: // GPS
+            i++;
+            data.push(
+              { variable: 'location', location: {
+                'lat': buffer.getFloat32(i, true),
+                'lng': buffer.getFloat32(i+=4, true)}
+                },
+                { variable: 'altitude', value: buffer.getFloat32(i+=4, true)},
+                { variable: 'hdop', value: buffer.getFloat32(i+=4, true)},
+                { variable: 'course',  value: buffer.getInt16(i+=4, true)},
+                { variable: 'speed',  value: buffer.getFloat32(i+=2, true)},
+                { variable: 'sats',  value: buffer.getInt16(i+=4, true) }
+            );
+            i += 2;
+            break;
+          case 0x0b: // AXP
+            i++;
+            data.push(
+            { variable: 'espBatteryVoltage', value: buffer.getFloat32(i, true)/1000},
+                { variable: 'espBatteryCurrent', value: buffer.getFloat32(i+=4, true)},
+                { variable: 'espBatteryTempture', value: buffer.getFloat32(i+=4, true)}
+            );
+            i+=4;
+            break;
+          case 0x0c: // MPPT
+            i++;
+            data.push(
+                { variable: 'veSolarPanelVoltage', value: buffer.getFloat32(i, true)},
+                { variable: 'veSolarPanelPower', value: buffer.getFloat32(i+=4, true)},
+                { variable: 'veYieldToday', value: buffer.getFloat32(i+=4, true)},
+                { variable: 'veChargerCurrent', value: buffer.getFloat32(i+=4, true)},
+                { variable: 'veChargerVoltage', value: buffer.getFloat32(i+=4, true)},
+                { variable: 'veChargerInternalTemperature', value: buffer.getFloat32(i+=4, true)},
+                { variable: 'veChargingMode', value: buffer.getUint32(i+=4, true)},
+                { variable: 'veChargerMode', value: buffer.getUint32(i+=4, true)},
+                { variable: 'veLoadVoltage', value: buffer.getFloat32(i+=4, true)},
+                { variable: 'veLoadCurrent', value: buffer.getFloat32(i+=4, true)},
+                { variable: 'veRemote', value: buffer.getUint32(i+=4, true)}
+            );
+            i+=4;
+            break;
+          case 0x0d: // BME
+            i++;
+            data.push(
+                { variable: 'bmeTemp', value: buffer.getFloat32(i, true)},
+                { variable: 'bmeHum', value: buffer.getFloat32(i+=4, true)},
+                { variable: 'bmePres', value: buffer.getFloat32(i+=4, true)/1000}
+            );
+            i+=4;
+            break;
+          default:
+            i = buffer.byteLength;
+            break;
+        }
+      }
+    
+      return data;
+    }
+    
+    function bufferFrom(data) {
+      let buf = new ArrayBuffer(data.length);
+      let view = new DataView(buf);
+      data.forEach(function(b, i) {
+        view.setUint8(i, b);
+      });
+      return view;
+    }
+    
